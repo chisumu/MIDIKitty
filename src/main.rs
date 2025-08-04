@@ -1,18 +1,20 @@
+use std::fmt;
+
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
     DefaultTerminal, Frame,
     style::{Stylize, Color},
     text::Line,
-    layout::Layout,
-    prelude::{Buffer, Constraint, Rect},
+    layout::{Layout, Direction},
+    prelude::{Buffer, Constraint, Alignment, Rect},
     widgets::{Widget, Block, Paragraph},
 };
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
     let terminal = ratatui::init();
-    let result = App::new().run(terminal);
+    let result = MIDIKitty::new().run(terminal);
     ratatui::restore();
     result
 }
@@ -46,11 +48,13 @@ impl Widget for &Grid {
 
             if i == self.active_cell {
                 Paragraph::new(format!("HIT"))
+                    .alignment(Alignment::Center)
                     .block(Block::bordered())
                     .bg(Color::Green)
                     .render(cell, buf);
             } else {
                 Paragraph::new(format!("{}", GRID_LETTERS[row][col]))
+                    .alignment(Alignment::Center)
                     .block(Block::bordered())
                     .render(cell, buf);
             }
@@ -64,20 +68,43 @@ impl Grid {
     }        
 }
 
+#[derive(Clone, PartialEq, Debug, Default)]
+pub enum AppMode {
+    #[default] MIDI,
+    Synth,
+    Edit,
+}
+
+impl fmt::Display for AppMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mode_str = match self  {
+            AppMode::MIDI => "MIDI",
+            AppMode::Synth => "Synth",
+            AppMode::Edit => "Synth (EDITING)",
+        };
+        write!(f, "{}", mode_str)
+    }
+}
+
 
 /// The main application which holds the state and logic of the application.
 #[derive(Debug, Default)]
-pub struct App {
+pub struct MIDIKitty {
     /// Is the application running?
     running: bool,
 
+    // Current application mode
+    mode: AppMode,
+
+    // UI Elements`
     grid: Grid,
 }
 
-impl App {
-    /// Construct a new instance of [`App`].
+impl MIDIKitty {
+    /// Construct a new instance of [`MIDIKitty`].
     pub fn new() -> Self {
         let mut app = Self::default();
+
         app.grid = Grid{cols: 8, rows: 3, active_cell: 0};
 
         app
@@ -86,10 +113,12 @@ impl App {
     /// Run the application's main loop.
     pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
+
         while self.running {
             terminal.draw(|frame| self.render(frame))?;
             self.handle_crossterm_events()?;
         }
+
         Ok(())
     }
 
@@ -100,17 +129,26 @@ impl App {
     /// - <https://docs.rs/ratatui/latest/ratatui/widgets/index.html>
     /// - <https://github.com/ratatui/ratatui/tree/main/ratatui-widgets/examples>
     fn render(&mut self, frame: &mut Frame) {
-        let title = Line::from("Ratatui Simple Template")
+        let title = Line::from(format!("MIDIKitty [{}]", self.mode))
             .bold()
             .blue()
             .centered();
-        let text = "Hello, Ratatui!\n\n\
-            Created using https://github.com/ratatui/templates\n\
-            Press `Esc`, `Ctrl-C` or `q` to stop running.";
 
-        frame.render_widget(
-            &self.grid, frame.area()
-        )
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Percentage(10),
+                Constraint::Percentage(90)
+            ])
+            .split(frame.area());
+
+        frame.render_widget(title, layout[0]);
+
+        match self.mode {
+            AppMode::MIDI => { frame.render_widget(&self.grid, layout[1]); }
+            AppMode::Synth => {}
+            AppMode::Edit => {}
+        }
     }
 
     /// Reads the crossterm events and updates the state of [`App`].
@@ -132,11 +170,20 @@ impl App {
         self.grid.play(row, col);
     }
 
+    fn switch_mode(&mut self) {
+        self.mode = match self.mode {
+            AppMode::MIDI => AppMode::Synth,
+            AppMode::Synth => AppMode::MIDI,
+            AppMode::Edit => self.mode.clone()
+        }
+    }
+
     /// Handles the key events and updates the state of [`App`].
     fn on_key_event(&mut self, key: KeyEvent) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc)
             | (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
+            (_, KeyCode::Tab) => self.switch_mode(),
             (_, KeyCode::Char('q')) => self.play_key(0, 0),
             (_, KeyCode::Char('w')) => self.play_key(0, 1),
             (_, KeyCode::Char('e')) => self.play_key(0, 2),
