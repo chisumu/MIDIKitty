@@ -1,5 +1,5 @@
 [package]
-name = "hello-world"
+name = "midikitty"
 version = "0.1.0"
 description = "An example generated using the simple template"
 authors = ["chsm"]
