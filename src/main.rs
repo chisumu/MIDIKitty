@@ -1,4 +1,5 @@
 use std::fmt;
+use std::collections::HashMap;
 
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -26,6 +27,8 @@ struct Grid {
     active_cell: usize,
 }
 
+// TODO: Make this just a keyboard layout, then subselect a portion
+// to use for the grid depeneding on the number of rows/columns
 const GRID_LETTERS: [[&str; 10]; 3] = [
     ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
     ["a", "w", "s", "d", "f", "g", "h", "j", "k", "l"],
@@ -68,6 +71,12 @@ impl Grid {
     }        
 }
 
+struct KeyState {
+    cols: usize,
+    rows: usize,
+    active_cell: usize,
+}
+
 #[derive(Clone, PartialEq, Debug, Default)]
 pub enum AppMode {
     #[default] MIDI,
@@ -98,14 +107,45 @@ pub struct MIDIKitty {
 
     // UI Elements`
     grid: Grid,
+
+    keymap: HashMap<KeyCode, (usize, usize)>,
 }
 
 impl MIDIKitty {
+    // Grid Keymap
+
+
     /// Construct a new instance of [`MIDIKitty`].
     pub fn new() -> Self {
         let mut app = Self::default();
 
         app.grid = Grid{cols: 8, rows: 3, active_cell: 0};
+        app.keymap = HashMap::from([
+            (KeyCode::Char('q'), (0, 0)),
+            (KeyCode::Char('w'), (0, 1)),
+            (KeyCode::Char('e'), (0, 2)),
+            (KeyCode::Char('r'), (0, 3)),
+            (KeyCode::Char('t'), (0, 4)),
+            (KeyCode::Char('y'), (0, 5)),
+            (KeyCode::Char('u'), (0, 6)),
+            (KeyCode::Char('i'), (0, 7)),
+            (KeyCode::Char('a'), (1, 0)),
+            (KeyCode::Char('s'), (1, 1)),
+            (KeyCode::Char('d'), (1, 2)),
+            (KeyCode::Char('f'), (1, 3)),
+            (KeyCode::Char('g'), (1, 4)),
+            (KeyCode::Char('h'), (1, 5)),
+            (KeyCode::Char('j'), (1, 6)),
+            (KeyCode::Char('k'), (1, 7)),
+            (KeyCode::Char('z'), (2, 0)),
+            (KeyCode::Char('x'), (2, 1)),
+            (KeyCode::Char('c'), (2, 2)),
+            (KeyCode::Char('v'), (2, 3)),
+            (KeyCode::Char('b'), (2, 4)),
+            (KeyCode::Char('n'), (2, 5)),
+            (KeyCode::Char('m'), (2, 6)),
+            (KeyCode::Char(','), (2, 7)),
+        ]);
 
         app
     }
@@ -180,34 +220,17 @@ impl MIDIKitty {
 
     /// Handles the key events and updates the state of [`App`].
     fn on_key_event(&mut self, key: KeyEvent) {
+        let mapped_key = self.keymap.get(&key.code);
+
+        if key.modifiers.is_empty() && mapped_key.is_some() {
+            let mapped_grid = mapped_key.unwrap();
+            self.play_key(mapped_grid.0, mapped_grid.1);
+        }
+
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc)
             | (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             (_, KeyCode::Tab) => self.switch_mode(),
-            (_, KeyCode::Char('q')) => self.play_key(0, 0),
-            (_, KeyCode::Char('w')) => self.play_key(0, 1),
-            (_, KeyCode::Char('e')) => self.play_key(0, 2),
-            (_, KeyCode::Char('r')) => self.play_key(0, 3),
-            (_, KeyCode::Char('t')) => self.play_key(0, 4),
-            (_, KeyCode::Char('y')) => self.play_key(0, 5),
-            (_, KeyCode::Char('u')) => self.play_key(0, 6),
-            (_, KeyCode::Char('i')) => self.play_key(0, 7),
-            (_, KeyCode::Char('a')) => self.play_key(1, 0),
-            (_, KeyCode::Char('s')) => self.play_key(1, 1),
-            (_, KeyCode::Char('d')) => self.play_key(1, 2),
-            (_, KeyCode::Char('f')) => self.play_key(1, 3),
-            (_, KeyCode::Char('g')) => self.play_key(1, 4),
-            (_, KeyCode::Char('h')) => self.play_key(1, 5),
-            (_, KeyCode::Char('j')) => self.play_key(1, 6),
-            (_, KeyCode::Char('k')) => self.play_key(1, 7),
-            (_, KeyCode::Char('z')) => self.play_key(2, 0),
-            (_, KeyCode::Char('x')) => self.play_key(2, 1),
-            (_, KeyCode::Char('c')) => self.play_key(2, 2),
-            (_, KeyCode::Char('v')) => self.play_key(2, 3),
-            (_, KeyCode::Char('b')) => self.play_key(2, 4),
-            (_, KeyCode::Char('n')) => self.play_key(2, 5),
-            (_, KeyCode::Char('m')) => self.play_key(2, 6),
-            (_, KeyCode::Char(',')) => self.play_key(2, 7),
 
             // Add other key handlers here.
             _ => {}
