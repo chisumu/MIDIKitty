@@ -1,18 +1,21 @@
+use std::fmt;
+use std::collections::HashMap;
+
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
     DefaultTerminal, Frame,
     style::{Stylize, Color},
     text::Line,
-    layout::Layout,
-    prelude::{Buffer, Constraint, Rect},
+    layout::{Layout, Direction},
+    prelude::{Buffer, Constraint, Alignment, Rect},
     widgets::{Widget, Block, Paragraph},
 };
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
     let terminal = ratatui::init();
-    let result = App::new().run(terminal);
+    let result = MIDIKitty::new().run(terminal);
     ratatui::restore();
     result
 }
@@ -22,8 +25,23 @@ struct Grid {
     cols: usize,
     rows: usize,
     active_cell: usize,
+    pad_state: Vec<PadState>,
+    pad_config: Vec<PadConfig>
 }
 
+#[derive(Debug, Default, Clone)]
+struct PadState {
+    active: bool,
+}
+
+#[derive(Debug, Default, Clone)]
+struct PadConfig {
+    note: u32,
+    velocity: u32,
+}
+
+// TODO: Make this just a keyboard layout, then subselect a portion
+// to use for the grid depeneding on the number of rows/columns
 const GRID_LETTERS: [[&str; 10]; 3] = [
     ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
     ["a", "w", "s", "d", "f", "g", "h", "j", "k", "l"],
@@ -43,14 +61,17 @@ impl Widget for &Grid {
         for (i, cell) in cells.enumerate() {
             let row = i / self.cols;
             let col = i % self.cols;
+            let g = self.grid_index(row,col);
 
-            if i == self.active_cell {
+            if self.pad_state[g].active {
                 Paragraph::new(format!("HIT"))
+                    .alignment(Alignment::Center)
                     .block(Block::bordered())
                     .bg(Color::Green)
                     .render(cell, buf);
             } else {
                 Paragraph::new(format!("{}", GRID_LETTERS[row][col]))
+                    .alignment(Alignment::Center)
                     .block(Block::bordered())
                     .render(cell, buf);
             }
@@ -59,26 +80,104 @@ impl Widget for &Grid {
 }
 
 impl Grid {
-    fn play(&mut self, row: usize, col: usize) {
-        self.active_cell = row * self.cols + col;
+    pub fn new(rows: usize, cols: usize) -> Self {
+        let mut app = Self::default();
+
+        app.rows = rows;
+        app.cols = cols;
+        app.pad_state = vec![PadState::default(); rows*cols];
+        app.pad_config = vec![PadConfig::default(); rows*cols];
+
+        app
     }        
+
+    fn grid_index(&self, row: usize, col: usize) -> usize {
+        row * self.cols + col
+    }
+
+    fn play(&mut self, row: usize, col: usize) {
+        let g = self.grid_index(row, col);
+
+        // TODO: #5 Unset after some timeout instead of on press
+        for i in 0..(self.rows*self.cols) {
+            if i == g {
+                self.pad_state[i].active = true;
+            } else {
+                self.pad_state[i].active = false;
+            }
+        }
+    }        
+}
+
+#[derive(Clone, PartialEq, Debug, Default)]
+pub enum AppMode {
+    #[default] MIDI,
+    Synth,
+    Edit,
+}
+
+impl fmt::Display for AppMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mode_str = match self  {
+            AppMode::MIDI => "MIDI",
+            AppMode::Synth => "Synth",
+            AppMode::Edit => "Synth (EDITING)",
+        };
+        write!(f, "{}", mode_str)
+    }
 }
 
 
 /// The main application which holds the state and logic of the application.
 #[derive(Debug, Default)]
-pub struct App {
+pub struct MIDIKitty {
     /// Is the application running?
     running: bool,
 
+    // Current application mode
+    mode: AppMode,
+
+    // UI Elements`
     grid: Grid,
+
+    keymap: HashMap<KeyCode, (usize, usize)>,
 }
 
-impl App {
-    /// Construct a new instance of [`App`].
+impl MIDIKitty {
+    // Grid Keymap
+
+
+    /// Construct a new instance of [`MIDIKitty`].
     pub fn new() -> Self {
         let mut app = Self::default();
-        app.grid = Grid{cols: 8, rows: 3, active_cell: 0};
+
+        app.grid = Grid::new(3, 8);
+        app.keymap = HashMap::from([
+            (KeyCode::Char('q'), (0, 0)),
+            (KeyCode::Char('w'), (0, 1)),
+            (KeyCode::Char('e'), (0, 2)),
+            (KeyCode::Char('r'), (0, 3)),
+            (KeyCode::Char('t'), (0, 4)),
+            (KeyCode::Char('y'), (0, 5)),
+            (KeyCode::Char('u'), (0, 6)),
+            (KeyCode::Char('i'), (0, 7)),
+            (KeyCode::Char('a'), (1, 0)),
+            (KeyCode::Char('s'), (1, 1)),
+            (KeyCode::Char('d'), (1, 2)),
+            (KeyCode::Char('f'), (1, 3)),
+            (KeyCode::Char('g'), (1, 4)),
+            (KeyCode::Char('h'), (1, 5)),
+            (KeyCode::Char('j'), (1, 6)),
+            (KeyCode::Char('k'), (1, 7)),
+            (KeyCode::Char('z'), (2, 0)),
+            (KeyCode::Char('x'), (2, 1)),
+            (KeyCode::Char('c'), (2, 2)),
+            (KeyCode::Char('v'), (2, 3)),
+            (KeyCode::Char('b'), (2, 4)),
+            (KeyCode::Char('n'), (2, 5)),
+            (KeyCode::Char('m'), (2, 6)),
+            (KeyCode::Char(','), (2, 7)),
+        ]);
 
         app
     }
@@ -86,10 +185,12 @@ impl App {
     /// Run the application's main loop.
     pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
+
         while self.running {
             terminal.draw(|frame| self.render(frame))?;
             self.handle_crossterm_events()?;
         }
+
         Ok(())
     }
 
@@ -100,17 +201,25 @@ impl App {
     /// - <https://docs.rs/ratatui/latest/ratatui/widgets/index.html>
     /// - <https://github.com/ratatui/ratatui/tree/main/ratatui-widgets/examples>
     fn render(&mut self, frame: &mut Frame) {
-        let title = Line::from("Ratatui Simple Template")
+        let title = Line::from(format!("MIDIKitty [{}]", self.mode))
             .bold()
             .blue()
             .centered();
-        let text = "Hello, Ratatui!\n\n\
-            Created using https://github.com/ratatui/templates\n\
-            Press `Esc`, `Ctrl-C` or `q` to stop running.";
 
-        frame.render_widget(
-            &self.grid, frame.area()
-        )
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Percentage(10),
+                Constraint::Percentage(90)
+            ])
+            .split(frame.area());
+
+        frame.render_widget(title, layout[0]);
+
+        match self.mode {
+            AppMode::MIDI | AppMode::Synth => { frame.render_widget(&self.grid, layout[1]); }
+            AppMode::Edit => {}
+        }
     }
 
     /// Reads the crossterm events and updates the state of [`App`].
@@ -132,35 +241,27 @@ impl App {
         self.grid.play(row, col);
     }
 
+    fn switch_mode(&mut self) {
+        self.mode = match self.mode {
+            AppMode::MIDI => AppMode::Synth,
+            AppMode::Synth => AppMode::MIDI,
+            AppMode::Edit => self.mode.clone()
+        }
+    }
+
     /// Handles the key events and updates the state of [`App`].
     fn on_key_event(&mut self, key: KeyEvent) {
+        let mapped_key = self.keymap.get(&key.code);
+
+        if key.modifiers.is_empty() && mapped_key.is_some() {
+            let mapped_grid = mapped_key.unwrap();
+            self.play_key(mapped_grid.0, mapped_grid.1);
+        }
+
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc)
             | (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
-            (_, KeyCode::Char('q')) => self.play_key(0, 0),
-            (_, KeyCode::Char('w')) => self.play_key(0, 1),
-            (_, KeyCode::Char('e')) => self.play_key(0, 2),
-            (_, KeyCode::Char('r')) => self.play_key(0, 3),
-            (_, KeyCode::Char('t')) => self.play_key(0, 4),
-            (_, KeyCode::Char('y')) => self.play_key(0, 5),
-            (_, KeyCode::Char('u')) => self.play_key(0, 6),
-            (_, KeyCode::Char('i')) => self.play_key(0, 7),
-            (_, KeyCode::Char('a')) => self.play_key(1, 0),
-            (_, KeyCode::Char('s')) => self.play_key(1, 1),
-            (_, KeyCode::Char('d')) => self.play_key(1, 2),
-            (_, KeyCode::Char('f')) => self.play_key(1, 3),
-            (_, KeyCode::Char('g')) => self.play_key(1, 4),
-            (_, KeyCode::Char('h')) => self.play_key(1, 5),
-            (_, KeyCode::Char('j')) => self.play_key(1, 6),
-            (_, KeyCode::Char('k')) => self.play_key(1, 7),
-            (_, KeyCode::Char('z')) => self.play_key(2, 0),
-            (_, KeyCode::Char('x')) => self.play_key(2, 1),
-            (_, KeyCode::Char('c')) => self.play_key(2, 2),
-            (_, KeyCode::Char('v')) => self.play_key(2, 3),
-            (_, KeyCode::Char('b')) => self.play_key(2, 4),
-            (_, KeyCode::Char('n')) => self.play_key(2, 5),
-            (_, KeyCode::Char('m')) => self.play_key(2, 6),
-            (_, KeyCode::Char(',')) => self.play_key(2, 7),
+            (_, KeyCode::Tab) => self.switch_mode(),
 
             // Add other key handlers here.
             _ => {}
