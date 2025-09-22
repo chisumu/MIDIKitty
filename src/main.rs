@@ -25,6 +25,19 @@ struct Grid {
     cols: usize,
     rows: usize,
     active_cell: usize,
+    pad_state: Vec<PadState>,
+    pad_config: Vec<PadConfig>
+}
+
+#[derive(Debug, Default, Clone)]
+struct PadState {
+    active: bool,
+}
+
+#[derive(Debug, Default, Clone)]
+struct PadConfig {
+    note: u32,
+    velocity: u32,
 }
 
 // TODO: Make this just a keyboard layout, then subselect a portion
@@ -48,8 +61,9 @@ impl Widget for &Grid {
         for (i, cell) in cells.enumerate() {
             let row = i / self.cols;
             let col = i % self.cols;
+            let g = self.grid_index(row,col);
 
-            if i == self.active_cell {
+            if self.pad_state[g].active {
                 Paragraph::new(format!("HIT"))
                     .alignment(Alignment::Center)
                     .block(Block::bordered())
@@ -66,15 +80,33 @@ impl Widget for &Grid {
 }
 
 impl Grid {
-    fn play(&mut self, row: usize, col: usize) {
-        self.active_cell = row * self.cols + col;
-    }        
-}
+    pub fn new(rows: usize, cols: usize) -> Self {
+        let mut app = Self::default();
 
-struct KeyState {
-    cols: usize,
-    rows: usize,
-    active_cell: usize,
+        app.rows = rows;
+        app.cols = cols;
+        app.pad_state = vec![PadState::default(); rows*cols];
+        app.pad_config = vec![PadConfig::default(); rows*cols];
+
+        app
+    }        
+
+    fn grid_index(&self, row: usize, col: usize) -> usize {
+        row * self.cols + col
+    }
+
+    fn play(&mut self, row: usize, col: usize) {
+        let g = self.grid_index(row, col);
+
+        // TODO: #5 Unset after some timeout instead of on press
+        for i in 0..(self.rows*self.cols) {
+            if i == g {
+                self.pad_state[i].active = true;
+            } else {
+                self.pad_state[i].active = false;
+            }
+        }
+    }        
 }
 
 #[derive(Clone, PartialEq, Debug, Default)]
@@ -119,7 +151,7 @@ impl MIDIKitty {
     pub fn new() -> Self {
         let mut app = Self::default();
 
-        app.grid = Grid{cols: 8, rows: 3, active_cell: 0};
+        app.grid = Grid::new(3, 8);
         app.keymap = HashMap::from([
             (KeyCode::Char('q'), (0, 0)),
             (KeyCode::Char('w'), (0, 1)),
@@ -185,8 +217,7 @@ impl MIDIKitty {
         frame.render_widget(title, layout[0]);
 
         match self.mode {
-            AppMode::MIDI => { frame.render_widget(&self.grid, layout[1]); }
-            AppMode::Synth => {}
+            AppMode::MIDI | AppMode::Synth => { frame.render_widget(&self.grid, layout[1]); }
             AppMode::Edit => {}
         }
     }
