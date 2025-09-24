@@ -1,15 +1,15 @@
-use std::fmt;
 use std::collections::HashMap;
+use std::fmt;
 
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
     DefaultTerminal, Frame,
-    style::{Stylize, Color},
+    layout::{Direction, Layout},
+    prelude::{Alignment, Buffer, Constraint, Rect},
+    style::{Color, Stylize},
     text::Line,
-    layout::{Layout, Direction},
-    prelude::{Buffer, Constraint, Alignment, Rect},
-    widgets::{Widget, Block, Paragraph},
+    widgets::{Block, Paragraph, Widget},
 };
 
 fn main() -> color_eyre::Result<()> {
@@ -26,7 +26,7 @@ struct Grid {
     rows: usize,
     active_cell: usize,
     pad_state: Vec<PadState>,
-    pad_config: Vec<PadConfig>
+    pad_config: Vec<PadConfig>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -61,7 +61,7 @@ impl Widget for &Grid {
         for (i, cell) in cells.enumerate() {
             let row = i / self.cols;
             let col = i % self.cols;
-            let g = self.grid_index(row,col);
+            let g = self.grid_index(row, col);
 
             if self.pad_state[g].active {
                 Paragraph::new(format!("HIT"))
@@ -85,11 +85,11 @@ impl Grid {
 
         app.rows = rows;
         app.cols = cols;
-        app.pad_state = vec![PadState::default(); rows*cols];
-        app.pad_config = vec![PadConfig::default(); rows*cols];
+        app.pad_state = vec![PadState::default(); rows * cols];
+        app.pad_config = vec![PadConfig::default(); rows * cols];
 
         app
-    }        
+    }
 
     fn grid_index(&self, row: usize, col: usize) -> usize {
         row * self.cols + col
@@ -99,26 +99,27 @@ impl Grid {
         let g = self.grid_index(row, col);
 
         // TODO: #5 Unset after some timeout instead of on press
-        for i in 0..(self.rows*self.cols) {
+        for i in 0..(self.rows * self.cols) {
             if i == g {
                 self.pad_state[i].active = true;
             } else {
                 self.pad_state[i].active = false;
             }
         }
-    }        
+    }
 }
 
 #[derive(Clone, PartialEq, Debug, Default)]
 pub enum AppMode {
-    #[default] MIDI,
+    #[default]
+    MIDI,
     Synth,
     Edit,
 }
 
 impl fmt::Display for AppMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mode_str = match self  {
+        let mode_str = match self {
             AppMode::MIDI => "MIDI",
             AppMode::Synth => "Synth",
             AppMode::Edit => "Synth (EDITING)",
@@ -126,7 +127,6 @@ impl fmt::Display for AppMode {
         write!(f, "{}", mode_str)
     }
 }
-
 
 /// The main application which holds the state and logic of the application.
 #[derive(Debug, Default)]
@@ -145,7 +145,6 @@ pub struct MIDIKitty {
 
 impl MIDIKitty {
     // Grid Keymap
-
 
     /// Construct a new instance of [`MIDIKitty`].
     pub fn new() -> Self {
@@ -208,16 +207,15 @@ impl MIDIKitty {
 
         let layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![
-                Constraint::Percentage(10),
-                Constraint::Percentage(90)
-            ])
+            .constraints(vec![Constraint::Percentage(10), Constraint::Percentage(90)])
             .split(frame.area());
 
         frame.render_widget(title, layout[0]);
 
         match self.mode {
-            AppMode::MIDI | AppMode::Synth => { frame.render_widget(&self.grid, layout[1]); }
+            AppMode::MIDI | AppMode::Synth => {
+                frame.render_widget(&self.grid, layout[1]);
+            }
             AppMode::Edit => {}
         }
     }
@@ -245,7 +243,7 @@ impl MIDIKitty {
         self.mode = match self.mode {
             AppMode::MIDI => AppMode::Synth,
             AppMode::Synth => AppMode::MIDI,
-            AppMode::Edit => self.mode.clone()
+            AppMode::Edit => self.mode.clone(),
         }
     }
 
