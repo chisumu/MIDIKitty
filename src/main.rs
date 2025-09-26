@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use color_eyre::Result;
+use color_eyre::{Result, eyre::eyre};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use midikitty::engine::Synth;
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Direction, Layout},
@@ -141,6 +142,8 @@ pub struct MIDIKitty {
     grid: Grid,
 
     keymap: HashMap<KeyCode, (usize, usize)>,
+
+    engine: Synth,
 }
 
 impl MIDIKitty {
@@ -184,6 +187,7 @@ impl MIDIKitty {
     /// Run the application's main loop.
     pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
+        self.connect()?;
 
         while self.running {
             terminal.draw(|frame| self.render(frame))?;
@@ -193,6 +197,10 @@ impl MIDIKitty {
         Ok(())
     }
 
+    fn connect(&mut self) -> Result<()> {
+        self.engine.connect().map_err(|_| eyre!("cannot connect"))?;
+        Ok(())
+    }
     /// Renders the user interface.
     ///
     /// This is where you add new widgets. See the following resources for more information:
@@ -237,6 +245,11 @@ impl MIDIKitty {
 
     fn play_key(&mut self, row: usize, col: usize) {
         self.grid.play(row, col);
+        self.engine.play(self.note_number(row, col));
+    }
+
+    fn note_number(&self, row: usize, col: usize) -> u8 {
+        36 + (row * self.grid.cols + col) as u8
     }
 
     fn switch_mode(&mut self) {
