@@ -245,7 +245,7 @@ impl MIDIKitty {
 
     fn play_key(&mut self, row: usize, col: usize) {
         self.grid.play(row, col);
-        self.engine.play(self.note_number(row, col));
+        // self.engine.play(self.note_number(row, col));
     }
 
     fn note_number(&self, row: usize, col: usize) -> u8 {

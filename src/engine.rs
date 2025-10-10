@@ -3,10 +3,16 @@
 use midir::{Ignore, MidiInput, MidiInputConnection};
 use rodio::{
     OutputStream,
-    source::{SineWave, Source},
+    source::{Amplify, SineWave, Skippable, Source},
 };
-use std::error::Error;
-use std::{fmt, time::Duration};
+use std::{
+    collections::HashMap,
+    error::Error,
+    fmt,
+    sync::mpsc::{self, Sender},
+    thread,
+    time::Duration,
+};
 
 /// Midi notes, 0 = C-1 and 127 = G9
 type Note = u8;
@@ -19,7 +25,6 @@ pub fn frequency(note: Note) -> f64 {
 
 #[derive(Default)]
 pub struct Synth {
-    stream: Option<OutputStream>,
     connection: Option<MidiInputConnection<()>>,
 }
 
@@ -31,12 +36,8 @@ impl fmt::Debug for Synth {
 
 impl Synth {
     pub fn connect(&mut self) -> Result<(), Box<dyn Error>> {
-        // audio stream
-        self.stream =
-            Some(rodio::OutputStreamBuilder::open_default_stream().expect("open default stream"));
-        // let sink = rodio::Sink::connect_new(&self.stream.mixer());
-
         // midi input port
+        // TODO refactor out into separate method
         let mut midi_in = MidiInput::new("midir reading input")?;
         midi_in.ignore(Ignore::None);
 
@@ -59,27 +60,89 @@ impl Synth {
             }
         };
 
+        let (tx, rx) = mpsc::channel();
+
         self.connection = Some(midi_in.connect(
             in_port,
             "midir-read-input",
+            // move |stamp, message, _| {
+            //     const NOTE_ON_MSG: u8 = 0x90;
+            //     const NOTE_OFF_MSG: u8 = 0x80;
+            //     println!("got {}: {:?} (len={})", stamp, message, message.len());
+            //     match message {
+            //         [NOTE_ON_MSG, note, velocity] => {
+            //             // inner.play(*note);
+            //             println!("note");
+            //         }
+            //         _ => println!("something else!"),
+            //     }
+            // },
             move |stamp, message, _| {
-                println!("got {}: {:?} (len={})", stamp, message, message.len());
+                tx.send((stamp, message.to_vec())).unwrap();
             },
             (),
         )?);
 
+        thread::spawn(move || {
+            // audio stream
+            let mut inner = Inner::default();
+            inner.stream = Some(
+                rodio::OutputStreamBuilder::open_default_stream().expect("open default stream"),
+            );
+            // let sink = rodio::Sink::connect_new(&self.stream.mixer());
+
+            for (stamp, message) in rx {
+                const NOTE_ON_MSG: u8 = 0x90;
+                const NOTE_OFF_MSG: u8 = 0x80;
+                // println!("got {}: {:?} (len={})", stamp, message, message.len());
+                match message[..] {
+                    [NOTE_ON_MSG, note, velocity] => inner.play(note),
+                    [NOTE_OFF_MSG, note, velocity] => inner.stop(note),
+                    // _ => println!("something else!"),
+                    _ => {}
+                }
+            }
+        });
+
         Ok(())
     }
+}
 
+#[derive(Default)]
+struct Inner {
+    stream: Option<OutputStream>,
+    sources: HashMap<Note, Sender<()>>,
+}
+
+impl Inner {
     pub fn play(&mut self, note: Note) {
+        let (tx, rx) = mpsc::channel();
+
+        if let Some(old_tx) = self.sources.insert(note, tx) {
+            // I don't know if we need this?
+            old_tx.send(()).unwrap_or_default();
+        };
+
         let source = SineWave::new(frequency(note) as f32)
-            .take_duration(Duration::from_secs_f32(0.25))
-            .amplify(0.20);
+            // .take_duration(Duration::from_secs_f32(0.25))
+            .amplify(0.20)
+            .skippable()
+            .periodic_access(Duration::from_micros(100), move |s| {
+                if let Ok(_) = rx.try_recv() {
+                    Skippable::skip(s);
+                }
+            });
         self.stream
             .as_mut()
             .expect("is initialized")
             .mixer()
             .add(source);
+    }
+
+    pub fn stop(&mut self, note: Note) {
+        if let Some(tx) = self.sources.get(&note) {
+            tx.send(()).unwrap();
+        };
     }
 }
 
