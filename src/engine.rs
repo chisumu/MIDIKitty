@@ -100,8 +100,9 @@ impl Synth {
                 const NOTE_OFF_MSG: u8 = 0x80;
                 // println!("got {}: {:?} (len={})", stamp, message, message.len());
                 match message[..] {
+                    [NOTE_ON_MSG, note, 0] => inner.stop(note),
                     [NOTE_ON_MSG, note, velocity] => inner.play(note, velocity),
-                    [NOTE_OFF_MSG, note, velocity] => inner.stop(note),
+                    [NOTE_OFF_MSG, note, _velocity] => inner.stop(note),
                     // _ => println!("something else!"),
                     _ => {}
                 }
