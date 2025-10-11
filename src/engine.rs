@@ -3,7 +3,7 @@
 use midir::{Ignore, MidiInput, MidiInputConnection};
 use rodio::{
     OutputStream,
-    source::{Amplify, SineWave, Skippable, Source},
+    source::{SineWave, Skippable, Source},
 };
 use std::{
     collections::HashMap,
@@ -16,6 +16,10 @@ use std::{
 
 /// Midi notes, 0 = C-1 and 127 = G9
 type Note = u8;
+
+/// Midi velocity, 0 = off, 1 = ppp, 64 = mf, 127 = fff
+type Velocity = u8;
+const MAX_VELOCITY: Velocity = 127;
 
 /// Convert MIDI note number to center frequency (Hz).
 /// https://en.wikipedia.org/wiki/MIDI_tuning_standard
@@ -96,7 +100,7 @@ impl Synth {
                 const NOTE_OFF_MSG: u8 = 0x80;
                 // println!("got {}: {:?} (len={})", stamp, message, message.len());
                 match message[..] {
-                    [NOTE_ON_MSG, note, velocity] => inner.play(note),
+                    [NOTE_ON_MSG, note, velocity] => inner.play(note, velocity),
                     [NOTE_OFF_MSG, note, velocity] => inner.stop(note),
                     // _ => println!("something else!"),
                     _ => {}
@@ -115,7 +119,7 @@ struct Inner {
 }
 
 impl Inner {
-    pub fn play(&mut self, note: Note) {
+    fn play(&mut self, note: Note, velocity: Velocity) {
         let (tx, rx) = mpsc::channel();
 
         if let Some(old_tx) = self.sources.insert(note, tx) {
@@ -125,7 +129,7 @@ impl Inner {
 
         let source = SineWave::new(frequency(note) as f32)
             // .take_duration(Duration::from_secs_f32(0.25))
-            .amplify(0.20)
+            .amplify_normalized(velocity as f32 / MAX_VELOCITY as f32)
             .skippable()
             .periodic_access(Duration::from_micros(100), move |s| {
                 if let Ok(_) = rx.try_recv() {
@@ -139,7 +143,7 @@ impl Inner {
             .add(source);
     }
 
-    pub fn stop(&mut self, note: Note) {
+    fn stop(&mut self, note: Note) {
         if let Some(tx) = self.sources.get(&note) {
             tx.send(()).unwrap();
         };
